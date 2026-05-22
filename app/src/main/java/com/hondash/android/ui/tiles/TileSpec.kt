@@ -109,7 +109,15 @@ data class LinearCalibration(
 ) {
     fun apply(voltage: Float): Float {
         val t = (voltage - inputMinV) / (inputMaxV - inputMinV)
-        return outputMin + t * (outputMax - outputMin)
+        val value = outputMin + t * (outputMax - outputMin)
+        // Clamp to the configured output range so sub-millivolt noise at
+        // the sensor's zero-pressure floor doesn't extrapolate into small
+        // negatives (e.g. -0.3 psi → "-0", -0.6 → "-1"), and a saturated
+        // sensor doesn't run past its calibrated maximum. min/max keeps
+        // reverse calibrations (outputMin > outputMax) working.
+        val lo = kotlin.math.min(outputMin, outputMax)
+        val hi = kotlin.math.max(outputMin, outputMax)
+        return value.coerceIn(lo, hi)
     }
 }
 
