@@ -12,8 +12,9 @@ android {
         minSdk = 26
         targetSdk = 35
         // Version code is set automatically from the GitHub Actions run number.
+        // Offset by 2 because manual uploads already used codes 1 and 2.
         // For local builds, falls back to 1.
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt() + 2
         versionName = "1.0.0"
     }
 
