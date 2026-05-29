@@ -9,3 +9,6 @@
 .cxx
 local.properties
 **/build/
+
+# Release keystore - never commit this
+hondash-release.jks
