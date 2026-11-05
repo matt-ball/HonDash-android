@@ -9,6 +9,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hondash.android.ui.DashboardScreen
 import com.hondash.android.ui.DashboardViewModel
 import com.hondash.android.ui.theme.HonDashTheme
@@ -19,7 +21,11 @@ import com.hondash.android.ui.theme.HonDashTheme
  */
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: DashboardViewModel by viewModels()
+    private val viewModel: DashboardViewModel by viewModels {
+        viewModelFactory {
+            initializer { DashboardViewModel(application) }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

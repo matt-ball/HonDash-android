@@ -1,0 +1,8 @@
+[
+  {"source":"RPM","unit":"RPM","warnHigh":7500,"alarmHigh":8200},
+  {"source":"ECT","unit":"FAHRENHEIT","warnHigh":210,"alarmHigh":225,"warnLow":100,"alarmLow":80},
+  {"source":"AN0","unit":"PSI","label":"Oil P","warnHigh":95,"alarmHigh":100,"warnLow":20,"alarmLow":10,"inputMinV":0.5,"inputMaxV":4.5,"outputMin":0,"outputMax":100},
+  {"source":"AN7","unit":"BAR","label":"Fuel P","inputMinV":0,"inputMaxV":5,"outputMin":6.895,"outputMax":0},
+  {"source":"SPEED","unit":"MPH"},
+  {"source":"VTEC","unit":"NONE"}
+]

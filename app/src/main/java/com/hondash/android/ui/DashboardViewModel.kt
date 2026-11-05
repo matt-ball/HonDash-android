@@ -2,12 +2,17 @@ package com.hondash.android.ui
 
 import android.app.Application
 import android.hardware.usb.UsbDevice
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hondash.android.kpro.KproSnapshot
 import com.hondash.android.kpro.KproUsbConnection
 import com.hondash.android.kpro.KproV4
-import com.hondash.android.ui.tiles.TileRepository
+import com.hondash.android.ui.layout.AlertPreferences
+import com.hondash.android.ui.layout.DashboardLayout
+import com.hondash.android.ui.layout.LayoutCodec
+import com.hondash.android.ui.layout.LayoutCodecException
+import com.hondash.android.ui.layout.LayoutRepository
+import com.hondash.android.ui.layout.NewerLayoutVersionException
 import com.hondash.android.ui.tiles.TileSpec
 import com.hondash.android.usb.UsbController
 import kotlinx.coroutines.Dispatchers
@@ -21,10 +26,13 @@ import kotlinx.coroutines.withContext
 
 enum class ConnectionState { Disconnected, RequestingPermission, Connecting, Connected, Simulating, Error }
 
-class DashboardViewModel(app: Application) : AndroidViewModel(app) {
+class DashboardViewModel internal constructor(
+    private val layoutRepo: LayoutRepository,
+    createUsb: () -> UsbController,
+) : ViewModel() {
+    constructor(app: Application) : this(LayoutRepository(app), { UsbController(app) })
 
-    private val usb = UsbController(app)
-    private val tileRepo = TileRepository(app)
+    private val usb by lazy(createUsb)
 
     private val _state = MutableStateFlow(ConnectionState.Disconnected)
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -32,34 +40,64 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val _snapshot = MutableStateFlow(KproSnapshot.EMPTY)
     val snapshot: StateFlow<KproSnapshot> = _snapshot.asStateFlow()
 
+    private var layoutLoadError: String? = null
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _tiles = MutableStateFlow(tileRepo.load())
-    val tiles: StateFlow<List<TileSpec>> = _tiles.asStateFlow()
+    private val _layout = MutableStateFlow(try {
+        layoutRepo.load()
+    } catch (error: NewerLayoutVersionException) {
+        layoutLoadError = error.message
+        reportError(error.message)
+        DashboardLayout()
+    })
+    val layout: StateFlow<DashboardLayout> = _layout.asStateFlow()
+
+    private val _alertPreferences = MutableStateFlow(layoutRepo.loadAlertPreferences())
+    val alertPreferences: StateFlow<AlertPreferences> = _alertPreferences.asStateFlow()
 
     private var pollJob: Job? = null
     private var kpro: KproV4? = null
 
     fun addTile(spec: TileSpec) {
-        _tiles.value = _tiles.value + spec
-        tileRepo.save(_tiles.value)
+        if (_layout.value.tiles.size >= LayoutCodec.MAX_TILES) {
+            reportError("Layouts may contain at most ${LayoutCodec.MAX_TILES} tiles")
+            return
+        }
+        updateLayout(_layout.value.copy(tiles = _layout.value.tiles + spec))
     }
 
     fun updateTile(index: Int, spec: TileSpec) {
-        val list = _tiles.value.toMutableList()
+        val list = _layout.value.tiles.toMutableList()
         if (index !in list.indices) return
         list[index] = spec
-        _tiles.value = list
-        tileRepo.save(list)
+        updateLayout(_layout.value.copy(tiles = list))
     }
 
     fun removeTile(index: Int) {
-        val list = _tiles.value.toMutableList()
+        val list = _layout.value.tiles.toMutableList()
         if (index !in list.indices) return
         list.removeAt(index)
-        _tiles.value = list
-        tileRepo.save(list)
+        updateLayout(_layout.value.copy(tiles = list))
+    }
+
+    fun updateLayout(layout: DashboardLayout) {
+        try {
+            layoutRepo.save(layout)
+            _layout.value = layout
+        } catch (error: LayoutCodecException) {
+            reportError(error.message)
+        }
+    }
+
+    private fun reportError(message: String?) {
+        // Connection attempts and simulation must not hide a required app update.
+        _error.value = layoutLoadError ?: message
+    }
+
+    fun updateAlertPreferences(preferences: AlertPreferences) {
+        layoutRepo.saveAlertPreferences(preferences)
+        _alertPreferences.value = preferences
     }
 
     /** Look for a K-Pro on the bus, prompting for permission if needed. */
@@ -71,7 +109,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val device = deviceHint?.takeIf(usb::isKpro) ?: usb.findKpro()
         if (device == null) {
             _state.value = ConnectionState.Disconnected
-            _error.value = "No K-Pro V4 detected. Plug in the USB-OTG cable."
+            reportError("No K-Pro V4 detected. Plug in the USB-OTG cable.")
             return
         }
         if (!usb.hasPermission(device)) {
@@ -79,7 +117,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             usb.requestPermission(device) { granted ->
                 if (granted) connect(device) else {
                     _state.value = ConnectionState.Disconnected
-                    _error.value = "USB permission denied."
+                    reportError("USB permission denied.")
                 }
             }
         } else {
@@ -89,14 +127,14 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun connect(device: UsbDevice) {
         _state.value = ConnectionState.Connecting
-        _error.value = null
+        reportError(null)
         viewModelScope.launch {
             val conn = withContext(Dispatchers.IO) {
                 KproUsbConnection.open(usb.usbManager, device)
             }
             if (conn == null) {
                 _state.value = ConnectionState.Error
-                _error.value = "Failed to open USB device."
+                reportError("Failed to open USB device.")
                 return@launch
             }
             kpro = KproV4(conn)
@@ -120,7 +158,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     consecutiveFailures++
                     if (consecutiveFailures >= MAX_POLL_FAILURES) {
                         _state.value = ConnectionState.Error
-                        _error.value = "USB read failed; reconnect required."
+                        reportError("USB read failed; reconnect required.")
                         break
                     }
                     // Brief backoff before retrying — survives transient bus hiccups.
@@ -143,7 +181,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     fun startSimulation() {
         if (_state.value == ConnectionState.Simulating) return
         disconnect()
-        _error.value = null
+        reportError(null)
         _state.value = ConnectionState.Simulating
         pollJob = viewModelScope.launch(Dispatchers.Default) {
             val start = System.currentTimeMillis()
