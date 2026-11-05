@@ -149,7 +149,7 @@ class LayoutCodecTest {
     }
 
     @Test fun newerVersionHasActionableUpdateMessage() {
-        val error = assertThrows(LayoutCodecException::class.java) { decode(document().put("version", 2)) }
+        val error = assertThrows(NewerLayoutVersionException::class.java) { decode(document().put("version", 2)) }
         assertEquals(LayoutCodec.NEWER_VERSION_MESSAGE, error.message)
     }
 

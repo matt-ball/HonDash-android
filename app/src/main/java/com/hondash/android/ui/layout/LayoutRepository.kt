@@ -11,19 +11,34 @@ class LayoutRepository internal constructor(private val prefs: SharedPreferences
     )
 
     fun load(): DashboardLayout {
-        prefs.getString("layout_v2", null)?.let { text ->
-            runCatching { LayoutCodec.decode(text).layout }.getOrNull()?.let { return it }
-        }
+        readStoredLayout()?.let { return it }
         // Never edit tiles_v1: downgrading to the MVP can still recover the original tiles.
         val migrated = prefs.getString("tiles_v1", null)?.let { text ->
-            runCatching { LayoutCodec.decode(text).layout }.getOrNull()
+            runCatching {
+                LayoutCodec.decode(text).layout.also {
+                    // Added fields can push a valid legacy array over the document size limit.
+                    LayoutCodec.encode(it)
+                }
+            }.getOrNull()
         } ?: DashboardLayout()
         save(migrated)
         return migrated
     }
 
     fun save(layout: DashboardLayout) {
+        // Protect newer documents even when a caller saves before loading.
+        readStoredLayout()
         prefs.edit().putString("layout_v2", LayoutCodec.encode(layout)).apply()
+    }
+
+    private fun readStoredLayout(): DashboardLayout? {
+        val text = prefs.getString("layout_v2", null) ?: return null
+        return try {
+            LayoutCodec.decode(text).layout
+        } catch (error: LayoutCodecException) {
+            if (error is NewerLayoutVersionException) throw error
+            null // Malformed current-version documents still recover from the legacy key.
+        }
     }
 
     fun loadAlertPreferences(): AlertPreferences {

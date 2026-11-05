@@ -2,6 +2,7 @@ package com.hondash.android.ui.layout
 
 import com.hondash.android.ui.tiles.TileSpec
 import com.hondash.android.ui.tiles.TileStyle
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -56,6 +57,48 @@ class LayoutRepositoryTest {
         assertEquals(migrated, LayoutCodec.decode(prefs.values.getValue("layout_v2")).layout)
         assertEquals(fixture, prefs.values["tiles_v1"])
         assertEquals(listOf("layout_v2"), prefs.writes)
+    }
+
+    @Test fun newerStoredVersionSurvivesLoadsAndSaveAttemptsEvenBeforeLoading() {
+        val fixture = javaClass.getResource("/tiles_v1.json")!!.readText()
+        val newer = JSONObject(LayoutCodec.encode(DashboardLayout(theme = ThemeMode.NIGHT)))
+            .put("version", LayoutCodec.VERSION + 1).put("futureSetting", "keep me").toString()
+        listOf(fixture, null).forEach { legacy ->
+            val prefs = MemoryPreferences()
+            prefs.values["layout_v2"] = newer
+            legacy?.let { prefs.values["tiles_v1"] = it }
+            val original = prefs.values.toMap()
+            val repo = LayoutRepository(prefs.preferences)
+            assertThrows(NewerLayoutVersionException::class.java) { repo.save(DashboardLayout()) }
+            repeat(2) {
+                val error = assertThrows(NewerLayoutVersionException::class.java) { repo.load() }
+                assertEquals(LayoutCodec.NEWER_VERSION_MESSAGE, error.message)
+                assertThrows(NewerLayoutVersionException::class.java) { repo.save(DashboardLayout()) }
+            }
+            assertEquals(original, prefs.values)
+            assertTrue(prefs.writes.isEmpty())
+        }
+    }
+
+    @Test fun legacyThatGrowsPastDocumentLimitRecoversWithoutChangingTheOriginal() {
+        val base = """[{"source":"RPM","unit":"RPM","label":""}]"""
+        val label = "x".repeat(LayoutCodec.MAX_BYTES - base.toByteArray(Charsets.UTF_8).size)
+        val legacy = base.replace("\"label\":\"\"", "\"label\":\"$label\"")
+        assertEquals(LayoutCodec.MAX_BYTES, legacy.toByteArray(Charsets.UTF_8).size)
+        val decoded = LayoutCodec.decode(legacy).layout
+        assertEquals(label, decoded.tiles.single().label)
+        assertThrows(LayoutCodecException::class.java) { LayoutCodec.encode(decoded) }
+        listOf(null, "{broken").forEach { stored ->
+            val prefs = MemoryPreferences()
+            prefs.values["tiles_v1"] = legacy
+            stored?.let { prefs.values["layout_v2"] = it }
+            val repo = LayoutRepository(prefs.preferences)
+            assertEquals(DashboardLayout(), repo.load())
+            assertEquals(DashboardLayout(), LayoutRepository(prefs.preferences).load())
+            assertEquals(DashboardLayout(), LayoutCodec.decode(prefs.values.getValue("layout_v2")).layout)
+            assertEquals(legacy, prefs.values["tiles_v1"])
+            assertEquals(listOf("layout_v2"), prefs.writes)
+        }
     }
 
     @Test fun corruptOrMissingLegacyUsesMvpDefaults() {

@@ -16,7 +16,9 @@ data class DecodedLayout(
     val droppedTiles: Int,
 )
 
-class LayoutCodecException(message: String) : IllegalArgumentException(message)
+open class LayoutCodecException(message: String) : IllegalArgumentException(message)
+
+class NewerLayoutVersionException : LayoutCodecException(LayoutCodec.NEWER_VERSION_MESSAGE)
 
 /** The same versioned document is used for preferences and portable files. */
 object LayoutCodec {
@@ -70,7 +72,7 @@ object LayoutCodec {
             checkDocument(json.opt("format") == FORMAT, "Not a HonDash layout")
             val version = json.intOrNull("version")
                 ?: throw LayoutCodecException("Layout version must be an integer")
-            if (version > VERSION) throw LayoutCodecException(NEWER_VERSION_MESSAGE)
+            if (version > VERSION) throw NewerLayoutVersionException()
             checkDocument(version == VERSION, "Unsupported layout version: $version")
             val defaultGrid = enumValue(json, "defaultGrid", GridPreset.G2X2, warnings)
             val grids = json.optionalArray("pageGrids") ?: JSONArray()
