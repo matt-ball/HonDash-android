@@ -1,8 +1,5 @@
 package com.hondash.android.ui.tiles
 
-import org.json.JSONArray
-import org.json.JSONObject
-
 /** A single dashboard tile's configuration. */
 data class TileSpec(
     val source: TileSource,
@@ -24,6 +21,10 @@ data class TileSpec(
     val inputMaxV: Float? = null,
     val outputMin: Float? = null,
     val outputMax: Float? = null,
+    val style: TileStyle = TileStyle.NUMERIC,
+    val gaugeMin: Float? = null,
+    val gaugeMax: Float? = null,
+    val alarmSilenced: Boolean = false,
 ) {
     val displayLabel: String
         get() = label?.takeIf { it.isNotBlank() } ?: source.defaultLabel
@@ -38,56 +39,7 @@ data class TileSpec(
             return LinearCalibration(vLo, vHi, oLo, oHi)
         }
 
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("source", source.name)
-        put("unit", unit.name)
-        label?.let { put("label", it) }
-        warnHigh?.let { put("warnHigh", it.toDouble()) }
-        alarmHigh?.let { put("alarmHigh", it.toDouble()) }
-        warnLow?.let { put("warnLow", it.toDouble()) }
-        alarmLow?.let { put("alarmLow", it.toDouble()) }
-        inputMinV?.let { put("inputMinV", it.toDouble()) }
-        inputMaxV?.let { put("inputMaxV", it.toDouble()) }
-        outputMin?.let { put("outputMin", it.toDouble()) }
-        outputMax?.let { put("outputMax", it.toDouble()) }
-    }
-
     companion object {
-        fun fromJson(json: JSONObject): TileSpec? {
-            val source = runCatching { TileSource.valueOf(json.getString("source")) }
-                .getOrNull() ?: return null
-            val unit = runCatching { TileUnit.valueOf(json.getString("unit")) }
-                .getOrNull() ?: TileUnits.defaultFor(source)
-            return TileSpec(
-                source = source,
-                unit = unit,
-                label = json.optString("label").takeIf { it.isNotBlank() },
-                warnHigh = json.optDoubleOrNull("warnHigh")?.toFloat(),
-                alarmHigh = json.optDoubleOrNull("alarmHigh")?.toFloat(),
-                warnLow = json.optDoubleOrNull("warnLow")?.toFloat(),
-                alarmLow = json.optDoubleOrNull("alarmLow")?.toFloat(),
-                inputMinV = json.optDoubleOrNull("inputMinV")?.toFloat(),
-                inputMaxV = json.optDoubleOrNull("inputMaxV")?.toFloat(),
-                outputMin = json.optDoubleOrNull("outputMin")?.toFloat(),
-                outputMax = json.optDoubleOrNull("outputMax")?.toFloat(),
-            )
-        }
-
-        fun listToJson(tiles: List<TileSpec>): String =
-            JSONArray().apply { tiles.forEach { put(it.toJson()) } }.toString()
-
-        fun listFromJson(text: String?): List<TileSpec> {
-            if (text.isNullOrBlank()) return emptyList()
-            return runCatching {
-                val arr = JSONArray(text)
-                buildList {
-                    for (i in 0 until arr.length()) {
-                        fromJson(arr.getJSONObject(i))?.let(::add)
-                    }
-                }
-            }.getOrDefault(emptyList())
-        }
-
         /** First-run dashboard layout. No thresholds — user sets those per-tile. */
         val DEFAULTS = listOf(
             TileSpec(TileSource.RPM, TileUnit.RPM),
@@ -97,6 +49,8 @@ data class TileSpec(
         )
     }
 }
+
+enum class TileStyle { NUMERIC, LARGE, BAR, SWEEP }
 
 enum class TileSeverity { NORMAL, WARNING, ALARM }
 
@@ -130,6 +84,3 @@ fun TileSpec.severity(value: Float?): TileSeverity {
             (warnLow != null && value <= warnLow)
     return if (isWarn) TileSeverity.WARNING else TileSeverity.NORMAL
 }
-
-private fun JSONObject.optDoubleOrNull(key: String): Double? =
-    if (has(key) && !isNull(key)) getDouble(key) else null

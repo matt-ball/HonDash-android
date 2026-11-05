@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,10 +36,12 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    val tiles by viewModel.tiles.collectAsStateWithLifecycle()
+    val layout by viewModel.layout.collectAsStateWithLifecycle()
+    val tiles = layout.tiles
 
     var configureIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var showAdd by rememberSaveable { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -52,6 +55,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             onConnect = viewModel::tryConnect,
             onSimulate = viewModel::startSimulation,
             onStop = viewModel::disconnect,
+            onSettings = { showSettings = true },
         )
         error?.let {
             Spacer(Modifier.height(8.dp))
@@ -66,6 +70,10 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             onAddTile = { showAdd = true },
             modifier = Modifier.fillMaxSize(),
         )
+    }
+
+    if (showSettings) {
+        DashboardSettingsDialog(onDismiss = { showSettings = false })
     }
 
     configureIndex?.let { idx ->
@@ -106,6 +114,7 @@ private fun StatusBar(
     onConnect: () -> Unit,
     onSimulate: () -> Unit,
     onStop: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -133,6 +142,7 @@ private fun StatusBar(
             fontSize = 13.sp,
             modifier = Modifier.weight(1f),
         )
+        TextButton(onClick = onSettings) { Text("Settings") }
         when (state) {
             ConnectionState.Connected, ConnectionState.Simulating -> {
                 Button(onClick = onStop) { Text("Stop") }

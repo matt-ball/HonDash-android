@@ -7,7 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.hondash.android.kpro.KproSnapshot
 import com.hondash.android.kpro.KproUsbConnection
 import com.hondash.android.kpro.KproV4
-import com.hondash.android.ui.tiles.TileRepository
+import com.hondash.android.ui.layout.AlertPreferences
+import com.hondash.android.ui.layout.DashboardLayout
+import com.hondash.android.ui.layout.LayoutCodec
+import com.hondash.android.ui.layout.LayoutRepository
 import com.hondash.android.ui.tiles.TileSpec
 import com.hondash.android.usb.UsbController
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +27,7 @@ enum class ConnectionState { Disconnected, RequestingPermission, Connecting, Con
 class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     private val usb = UsbController(app)
-    private val tileRepo = TileRepository(app)
+    private val layoutRepo = LayoutRepository(app)
 
     private val _state = MutableStateFlow(ConnectionState.Disconnected)
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -35,31 +38,45 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _tiles = MutableStateFlow(tileRepo.load())
-    val tiles: StateFlow<List<TileSpec>> = _tiles.asStateFlow()
+    private val _layout = MutableStateFlow(layoutRepo.load())
+    val layout: StateFlow<DashboardLayout> = _layout.asStateFlow()
+
+    private val _alertPreferences = MutableStateFlow(layoutRepo.loadAlertPreferences())
+    val alertPreferences: StateFlow<AlertPreferences> = _alertPreferences.asStateFlow()
 
     private var pollJob: Job? = null
     private var kpro: KproV4? = null
 
     fun addTile(spec: TileSpec) {
-        _tiles.value = _tiles.value + spec
-        tileRepo.save(_tiles.value)
+        if (_layout.value.tiles.size >= LayoutCodec.MAX_TILES) {
+            _error.value = "Layouts may contain at most ${LayoutCodec.MAX_TILES} tiles"
+            return
+        }
+        updateLayout(_layout.value.copy(tiles = _layout.value.tiles + spec))
     }
 
     fun updateTile(index: Int, spec: TileSpec) {
-        val list = _tiles.value.toMutableList()
+        val list = _layout.value.tiles.toMutableList()
         if (index !in list.indices) return
         list[index] = spec
-        _tiles.value = list
-        tileRepo.save(list)
+        updateLayout(_layout.value.copy(tiles = list))
     }
 
     fun removeTile(index: Int) {
-        val list = _tiles.value.toMutableList()
+        val list = _layout.value.tiles.toMutableList()
         if (index !in list.indices) return
         list.removeAt(index)
-        _tiles.value = list
-        tileRepo.save(list)
+        updateLayout(_layout.value.copy(tiles = list))
+    }
+
+    fun updateLayout(layout: DashboardLayout) {
+        layoutRepo.save(layout)
+        _layout.value = layout
+    }
+
+    fun updateAlertPreferences(preferences: AlertPreferences) {
+        layoutRepo.saveAlertPreferences(preferences)
+        _alertPreferences.value = preferences
     }
 
     /** Look for a K-Pro on the bus, prompting for permission if needed. */
